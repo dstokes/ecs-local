@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -36,6 +37,7 @@ var (
 	profileFlag = f.StringP("profile", "p", "", "AWS profile")
 	regionFlag  = f.StringP("region", "r", "us-east-1", "AWS region")
 	verboseFlag = f.BoolP("verbose", "v", false, "verbose")
+	versionFlag = f.Bool("version", false, "version")
 )
 
 const helpString = `Usage:
@@ -46,6 +48,7 @@ Flags:
   -p, --profile The AWS profile to use
   -r, --region  The AWS region the table is in
   -v, --verbose Verbose logging
+      --version
 `
 
 func main() {
@@ -55,7 +58,17 @@ func main() {
 	}
 	args := f.Args()
 
-	if *helpFlag == true || len(args) < 1 {
+	if *helpFlag == true {
+		fmt.Print(helpString)
+		os.Exit(exitCodeOk)
+	}
+
+	if *versionFlag == true {
+		fmt.Printf("%s %s\n", filepath.Base(os.Args[0]), Version)
+		os.Exit(exitCodeOk)
+	}
+
+	if len(args) < 1 {
 		fmt.Print(helpString)
 		os.Exit(exitCodeOk)
 	}
