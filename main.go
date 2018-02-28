@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/fsouza/go-dockerclient"
 	flag "github.com/ogier/pflag"
 )
@@ -192,6 +193,28 @@ func main() {
 	for _, e := range task.ContainerDefinitions[0].Environment {
 		dockerArgs = append(dockerArgs, "-e", fmt.Sprintf("%s=%s", *e.Name, *e.Value))
 	}
+
+	// attempt to assume container IAM role
+	if *task.TaskRoleArn != "" {
+		stsClient := sts.New(sess)
+		role, err := stsClient.AssumeRole(&sts.AssumeRoleInput{
+			DurationSeconds: aws.Int64(3600),
+			RoleArn:         task.TaskRoleArn,
+			RoleSessionName: aws.String("ecs-local"),
+		})
+		if err != nil {
+			log.Debugf("Unable to assume role %s", *task.TaskRoleArn)
+			log.Debugf("%s", err.Error())
+		} else {
+			log.Debugf("Successfully assumed container role %s", *task.TaskRoleArn)
+			dockerArgs = append(dockerArgs,
+				"-e", fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", *role.Credentials.AccessKeyId),
+				"-e", fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", *role.Credentials.SecretAccessKey),
+				"-e", fmt.Sprintf("AWS_SESSION_TOKEN=%s", *role.Credentials.SessionToken),
+			)
+		}
+	}
+
 	dockerArgs = append(dockerArgs, *image)
 
 	// start the container
