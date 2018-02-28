@@ -7,8 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecr"
@@ -34,14 +36,14 @@ var (
 
 	// options
 	helpFlag    = f.BoolP("help", "h", false, "help")
-	profileFlag = f.StringP("profile", "p", "", "AWS profile")
+	profileFlag = f.StringP("profile", "p", "default", "AWS profile")
 	regionFlag  = f.StringP("region", "r", "us-east-1", "AWS region")
 	verboseFlag = f.BoolP("verbose", "v", false, "verbose")
 	versionFlag = f.Bool("version", false, "version")
 )
 
 const helpString = `Usage:
-  ecs-local [-hv] [--profile=aws_profile] [--region=aws_region]
+  ecs-local [-hv] [--profile=aws_profile] [--region=aws_region] [task_def] [command...]
 
 Flags:
   -h, --help    Print this help message
@@ -76,15 +78,20 @@ func main() {
 	awsRegion := regionFlag
 	taskDefinitionName := args[0]
 
-	sess := session.New(&aws.Config{Region: awsRegion})
-	if *profileFlag != "" {
-		sess = session.Must(session.NewSessionWithOptions(session.Options{
-			AssumeRoleTokenProvider: stscreds.StdinTokenProvider,
-			SharedConfigState:       session.SharedConfigEnable,
-			Profile:                 *profileFlag,
-			Config:                  aws.Config{Region: awsRegion},
-		}))
-	}
+	// override default sts session duration
+	stscreds.DefaultDuration = time.Duration(1) * time.Hour
+
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		AssumeRoleTokenProvider: stscreds.StdinTokenProvider,
+		SharedConfigState:       session.SharedConfigEnable,
+		Profile:                 *profileFlag,
+		Config:                  aws.Config{Region: awsRegion},
+	}))
+
+	sess.Config.Credentials = credentials.NewCredentials(&CredentialCacheProvider{
+		Creds:   sess.Config.Credentials,
+		Profile: *profileFlag,
+	})
 
 	svc := ecs.New(sess)
 	resp, err := svc.DescribeTaskDefinition(&ecs.DescribeTaskDefinitionInput{
@@ -135,9 +142,7 @@ func main() {
 	}
 
 	fmt.Printf("==> Pulling %s \n", *image)
-	if *verboseFlag {
-		pullOptions.OutputStream = os.Stdout
-	}
+	pullOptions.OutputStream = os.Stdout
 
 	err = client.PullImage(pullOptions, auth)
 	if err != nil {
