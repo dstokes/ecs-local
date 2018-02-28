@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
@@ -32,14 +32,13 @@ var (
 )
 
 var (
-	f = flag.NewFlagSet("flags", flag.ContinueOnError)
+	f = flag.NewFlagSet("flags", flag.ExitOnError)
 
 	// options
 	helpFlag    = f.BoolP("help", "h", false, "help")
 	profileFlag = f.StringP("profile", "p", "", "AWS profile")
 	regionFlag  = f.StringP("region", "r", "", "AWS region")
 	verboseFlag = f.BoolP("verbose", "v", false, "verbose")
-	versionFlag = f.Bool("version", false, "version")
 )
 
 const helpString = `Usage:
@@ -49,30 +48,31 @@ Flags:
   -h, --help    Print this help message
   -p, --profile The AWS profile to use
   -r, --region  The AWS region the table is in
-  -v, --verbose Verbose logging
-      --version
-`
+  -v, --verbose Verbose logging`
+
+var log = logrus.New()
+
+func help() {
+	fmt.Printf("ecs-local %s\n%s\n", Version, helpString)
+	os.Exit(exitCodeOk)
+}
 
 func main() {
-	if err := f.Parse(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(exitCodeFlagParseError)
-	}
+	f.Usage = help
+	f.Parse(os.Args[1:])
 	args := f.Args()
 
 	if *helpFlag == true {
-		fmt.Print(helpString)
-		os.Exit(exitCodeOk)
+		help()
 	}
 
-	if *versionFlag == true {
-		fmt.Printf("%s %s\n", filepath.Base(os.Args[0]), Version)
-		os.Exit(exitCodeOk)
+	log.SetLevel(logrus.ErrorLevel)
+	if *verboseFlag == true {
+		log.SetLevel(logrus.DebugLevel)
 	}
 
 	if len(args) < 1 {
-		fmt.Print(helpString)
-		os.Exit(exitCodeOk)
+		help()
 	}
 
 	taskDefinitionName := args[0]
@@ -94,6 +94,8 @@ func main() {
 	if *profileFlag != "" {
 		awsProfile = *profileFlag
 	}
+	log.Debugf("Using AWS region \"%s\" ", awsRegion)
+	log.Debugf("Using AWS profile \"%s\" ", awsProfile)
 
 	// override default sts session duration
 	stscreds.DefaultDuration = time.Duration(1) * time.Hour
@@ -114,13 +116,21 @@ func main() {
 	resp, err := svc.DescribeTaskDefinition(&ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: aws.String(taskDefinitionName),
 	})
+
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(exitCodeAWSError)
 	}
 
+	if log.Level == logrus.DebugLevel {
+		creds, _ := sess.Config.Credentials.Get()
+		log.Debugf("Credential provider is %s", creds.ProviderName)
+	}
+
 	task := resp.TaskDefinition
 	image := task.ContainerDefinitions[0].Image
+
+	log.Debugf("Found task %s", *task.TaskDefinitionArn)
 
 	ecrClient := ecr.New(sess)
 	input := &ecr.GetAuthorizationTokenInput{}
@@ -158,7 +168,7 @@ func main() {
 		Repository: *image,
 	}
 
-	fmt.Printf("==> Pulling %s \n", *image)
+	fmt.Printf("Pulling %s \n", *image)
 	pullOptions.OutputStream = os.Stdout
 
 	err = client.PullImage(pullOptions, auth)
@@ -169,6 +179,15 @@ func main() {
 
 	dockerArgs := []string{"run", "-it", "--rm"}
 
+	// set docker command
+	command := args[1:]
+	if len(command) == 0 {
+		for _, v := range task.ContainerDefinitions[0].Command {
+			command = append(command, *v)
+		}
+	}
+	log.Debugf("Running command \"%s\"", strings.Join(command, " "))
+
 	// envs
 	for _, e := range task.ContainerDefinitions[0].Environment {
 		dockerArgs = append(dockerArgs, "-e", fmt.Sprintf("%s=%s", *e.Name, *e.Value))
@@ -176,7 +195,7 @@ func main() {
 	dockerArgs = append(dockerArgs, *image)
 
 	// start the container
-	cmd := exec.Command("docker", append(dockerArgs, args[1:]...)...)
+	cmd := exec.Command("docker", append(dockerArgs, command...)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

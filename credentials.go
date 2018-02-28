@@ -49,9 +49,12 @@ func (c *CredentialCacheProvider) Retrieve() (credentials.Value, error) {
 		}
 		err = json.Unmarshal(content, &creds)
 
+		log.Debugf("Cached credentials loaded from %s", cacheFile)
 		if creds.isExpired() {
+			log.Debugf("Cached credentials expired at %s", creds.Expiration)
 			c.Creds.Expire()
 		} else {
+			log.Debugf("Cached credentials expire at %s", creds.Expiration)
 			return creds.Value, nil
 		}
 	}
@@ -69,6 +72,7 @@ func (c *CredentialCacheProvider) Retrieve() (credentials.Value, error) {
 			return creds, err
 		}
 
+		log.Debugf("Writing credentials to %s", cacheFile)
 		return creds, ioutil.WriteFile(cacheFile, content, 0600)
 	}
 
