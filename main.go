@@ -36,8 +36,8 @@ var (
 
 	// options
 	helpFlag    = f.BoolP("help", "h", false, "help")
-	profileFlag = f.StringP("profile", "p", "default", "AWS profile")
-	regionFlag  = f.StringP("region", "r", "us-east-1", "AWS region")
+	profileFlag = f.StringP("profile", "p", "", "AWS profile")
+	regionFlag  = f.StringP("region", "r", "", "AWS region")
 	verboseFlag = f.BoolP("verbose", "v", false, "verbose")
 	versionFlag = f.Bool("version", false, "version")
 )
@@ -75,8 +75,25 @@ func main() {
 		os.Exit(exitCodeOk)
 	}
 
-	awsRegion := regionFlag
 	taskDefinitionName := args[0]
+
+	// set desired AWS region
+	awsRegion := "us-east-1"
+	if envRegion, present := os.LookupEnv("AWS_REGION"); present {
+		awsRegion = envRegion
+	}
+	if *regionFlag != "" {
+		awsRegion = *regionFlag
+	}
+
+	// set desired AWS profile
+	awsProfile := "default"
+	if envProfile, present := os.LookupEnv("AWS_PROFILE"); present {
+		awsProfile = envProfile
+	}
+	if *profileFlag != "" {
+		awsProfile = *profileFlag
+	}
 
 	// override default sts session duration
 	stscreds.DefaultDuration = time.Duration(1) * time.Hour
@@ -84,13 +101,13 @@ func main() {
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
 		AssumeRoleTokenProvider: stscreds.StdinTokenProvider,
 		SharedConfigState:       session.SharedConfigEnable,
-		Profile:                 *profileFlag,
-		Config:                  aws.Config{Region: awsRegion},
+		Profile:                 awsProfile,
+		Config:                  aws.Config{Region: aws.String(awsRegion)},
 	}))
 
 	sess.Config.Credentials = credentials.NewCredentials(&CredentialCacheProvider{
 		Creds:   sess.Config.Credentials,
-		Profile: *profileFlag,
+		Profile: awsProfile,
 	})
 
 	svc := ecs.New(sess)
