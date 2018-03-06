@@ -195,7 +195,7 @@ func main() {
 	}
 
 	// attempt to assume container IAM role
-	if *task.TaskRoleArn != "" {
+	if task.TaskRoleArn != nil {
 		stsClient := sts.New(sess)
 		role, err := stsClient.AssumeRole(&sts.AssumeRoleInput{
 			DurationSeconds: aws.Int64(3600),
