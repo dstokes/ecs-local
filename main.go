@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/fsouza/go-dockerclient"
-	flag "github.com/ogier/pflag"
+	flag "github.com/spf13/pflag"
 )
 
 const (
@@ -37,16 +37,18 @@ var (
 
 	// options
 	helpFlag    = f.BoolP("help", "h", false, "help")
+	envFlags    = f.StringSliceP("env", "e", []string{}, "key=value")
 	profileFlag = f.StringP("profile", "p", "", "AWS profile")
 	regionFlag  = f.StringP("region", "r", "", "AWS region")
 	verboseFlag = f.BoolP("verbose", "v", false, "verbose")
 )
 
 const helpString = `Usage:
-  ecs-local [-hv] [--profile=aws_profile] [--region=aws_region] [task_def] [command...]
+  ecs-local [-hv] [--profile=aws_profile] [--region=aws_region] [-e key=value] [task_def] [command...]
 
 Flags:
   -h, --help    Print this help message
+  -e, --env     Set environments variable
   -p, --profile The AWS profile to use
   -r, --region  The AWS region the table is in
   -v, --verbose Verbose logging`
@@ -212,6 +214,15 @@ func main() {
 				"-e", fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", *role.Credentials.SecretAccessKey),
 				"-e", fmt.Sprintf("AWS_SESSION_TOKEN=%s", *role.Credentials.SessionToken),
 			)
+		}
+	}
+
+	// parse environment flags
+	if len(*envFlags) > 0 {
+		for _, env := range *envFlags {
+			parts := strings.SplitN(env, "=", 2)
+			dockerArgs = append(dockerArgs,
+				"-e", fmt.Sprintf("%s=%s", parts[0], parts[1]))
 		}
 	}
 
